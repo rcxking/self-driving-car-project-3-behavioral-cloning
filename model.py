@@ -23,13 +23,26 @@ PATH_TO_TRAINING_DATA = "/home/bryant/car-data/"
 PATH_TO_IMAGE_DATA = PATH_TO_TRAINING_DATA + "IMG/"
 
 # CSV Files containing steering data:
+
 # Counterclockwise Driving
+# This log contains driving data for a single counter-clockwise
+# loop around Track 1.
 CCW_LOG = PATH_TO_TRAINING_DATA + "ccw_driving_log.csv"
+
 # Clockwise Driving
+# This log contains driving data for a single clockwise
+# loop around Track 1.
 CW_LOG = PATH_TO_TRAINING_DATA + "cw_driving_log.csv"
+
 # Recovery
+# This log contains driving data for small recovery maneuvers.
+# Think of correcting slight drifts to the left and right.
 RECOVERY_LOG = PATH_TO_TRAINING_DATA + "recovery_driving_log.csv"
+
 # Extreme Recovery:
+# This log contains driving data for more extreme recovery maneuvers.
+# This handles cases such as driving onto the area between a yellow lane line
+# and the curb, or driving off a sharp curve into the red/white striped area. 
 EXTREME_RECOVERY_LOG = PATH_TO_TRAINING_DATA + "extreme_recovery_driving_log.csv"
 
 # Extract all the lines from the CVS files:
@@ -57,6 +70,14 @@ with open( EXTREME_RECOVERY_LOG ) as csvFile:
 images = []
 headings = []
 
+'''
+As my computer has 32 GB of RAM, I did not need to use
+a Python Generator to help with loading all the training
+images.  However, a generator is more ideal since I've noticed
+that with each frame contributing 6 images (3 for the original
+left, right, and center images and an additional 3 for the flipped
+left, right, and center images) took a whopping 10 GB on my machine.
+'''
 for line in lines:
 
     # First field contains the path to the center image: 
@@ -81,7 +102,7 @@ for line in lines:
     centerHeading = float( line[ 3 ] )
     headings.append( centerHeading )
 
-    # Add a small constant for steering left and right;
+    # Add a small constant for correcting steering left and right.
     STEERING_CONSTANT = 0.35
     leftHeading = centerHeading + STEERING_CONSTANT
     headings.append( leftHeading )
@@ -89,7 +110,7 @@ for line in lines:
     rightHeading = centerHeading - STEERING_CONSTANT
     headings.append( rightHeading )
 
-    # Now flip the image along the Y-Axis and flip the steering angle.
+    # Now flip the images along the Y-Axis and flip the steering angle.
     # This gives us more data to train on:
     flippedCenterImage = cv2.flip( centerImage, 1 )
     flippedCenterHeading = -1.0 * centerHeading
@@ -114,6 +135,7 @@ print( "Done loading images and headings" )
 X_train = np.array( images )
 y_train = np.array( headings )
 
+# Including the flipped images, we're working with ~28000 images here.
 print( len( X_train ) )
 print( len( y_train ) )
 
@@ -133,49 +155,62 @@ def main():
 
     # Cropping Layer.  We want to crop 65 pixels from the top and 30 pixels
     # from the bottom.  This allows the network to ignore the background
-    # and the hood of the car:
+    # and the hood of the car.  The values were determined by opening
+    # images in the GIMP program and manually cropping out undesired areas.
     model.add( Cropping2D( cropping = ( ( 65, 30 ), ( 0, 0 ) ) ) ) 
 
-    # Convolutional Layer 1.  Input = 32x32x3.  Output = 28x28x3:
+    # Convolutional Layer 1.  Input = 320x160x3.  Output = 316x156x16 
     model.add( Conv2D( 16, 5, 5, input_shape = ( 160, 320, 3 ) ) )
     model.add( Activation( 'relu' ) )
 
-    # Max Pooling Layer 1:
+    # Max Pooling Layer 1 (defaults to 2x2 pooling filter).
+    # Input: 316x156x16.  Output = 158x78x16
     model.add( MaxPooling2D() )
 
-    # Dropout Layer 1:
+    # Dropout Layer 1.  Keep probability of 0.5
     model.add( Dropout( 0.5 ) )
     
-    # Convolutional Layer 2:
+    # Convolutional Layer 2.  Input = 158x78x16.  Output = 154x74x16. 
     model.add( Conv2D( 16, 5, 5 ) )
     model.add( Activation( 'relu' ) )
 
-    # Convolutional Layer 3:
+    # Convolutional Layer 3.  Input = 154x74x16.  Output = 150x70x16.
     model.add( Conv2D( 16, 5, 5 ) )
     model.add( Activation( 'relu' ) )
 
-    # Convolutional Layer 4:
+    # Convolutional Layer 4.  Input = 150x70x16.  Output = 148x78x16.
     model.add( Conv2D( 16, 3, 3 ) )
     model.add( Activation( 'relu' ) )
 
-    # Max Pooling Layer 2:
+    # Max Pooling Layer 2 (defaults to 2x2 pooling filter).
+    # Input: 148x78x16.  Output = 74x39x16.
     model.add( MaxPooling2D() )
 
-    # Dropout Layer 2:
+    # Dropout Layer 2.  Keep probability of 0.5.
     model.add( Dropout( 0.5 ) )
 
-    # Flatten the input image into an array of 320 * 160 * 3:
-    model.add( Flatten() ) # 8100
+    # Flatten the input image into an array of 74*39*16 = 46176:
+    model.add( Flatten() )
 
+    # Dense Network of 120 neurons
     model.add( Dense( 120 ) )
 
+    # Dense Network of 84 neurons
     model.add( Dense( 84 ) )
 
-    # The network needs to learn the appropriate steering heading:
+    # The network needs to learn the appropriate steering heading, thus
+    # there's only a single output needed (steering heading).
     model.add( Dense( 1 ) )
 
+    # As this is a regression network, I will be using the Mean-Squared Error
+    # instead of the softmax loss function.  The Adam Optimizer is also used.  
     model.compile( loss = 'mse', optimizer = 'adam' )
 
+    '''
+    The ~28k images will be split into a training data set (80% of the images)
+    and a validation data set (20% of the images).  This means that we're using 
+    ~6000 images for validation.
+    '''
     model.fit( X_train, y_train, validation_split = 0.2, shuffle = True )
 
     # Save the model:
